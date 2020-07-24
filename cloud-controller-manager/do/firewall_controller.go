@@ -132,11 +132,7 @@ func (fc *FirewallController) Run(stopCh <-chan struct{}, fm *firewallManagerOp,
 		}
 
 		if currentFirewall != nil {
-			fm.fwCache.mu.RLock()
-			isEqual := cmp.Equal(currentFirewall, fm.fwCache.firewall)
-			fm.fwCache.mu.RUnlock()
-
-			if isEqual {
+			if fm.fwCache.isEqual(currentFirewall) {
 				return
 			}
 		}
@@ -156,11 +152,7 @@ func (fm *firewallManagerOp) Get(ctx context.Context) (*godo.Firewall, error) {
 	fm.fwCache.mu.RUnlock()
 
 	if fw != nil {
-		fm.fwCache.mu.RLock()
-		fwID := fm.fwCache.firewall.ID
-		fm.fwCache.mu.RUnlock()
-
-		fw, resp, err := fm.client.Firewalls.Get(ctx, fwID)
+		fw, resp, err := fm.client.Firewalls.Get(ctx, fm.fwCache.getFirewallID())
 		if err != nil && (resp == nil || resp.StatusCode != http.StatusNotFound) {
 			return nil, errFailedToRetrieveFirewallByID
 		}
@@ -202,20 +194,14 @@ func (fm *firewallManagerOp) Set(ctx context.Context, svcInboundRules []godo.Inb
 		return nil
 	}
 
-	var fwID string
-
 	// A locally cached firewall exists, but the inbound rules don't match the expected
 	// service inbound rules. So we need to use the locally cached firewall ID to attempt
 	// to update the firewall APIs representation of the firewall with the new rules.
 	//
 	// Then we update the local cache with the firewall returned from the Update request.
 	if targetFirewall != nil {
-		fm.fwCache.mu.RLock()
-		fwID = targetFirewall.ID
-		fm.fwCache.mu.RUnlock()
-
 		fr := fm.createFirewallRequest(fm.workerFirewallName, fm.workerFirewallTags, svcInboundRules)
-		currentFirewall, resp, err := fm.client.Firewalls.Update(ctx, fwID, fr)
+		currentFirewall, resp, err := fm.client.Firewalls.Update(ctx, fm.fwCache.getFirewallID(), fr)
 		if err != nil {
 			if resp == nil || resp.StatusCode != http.StatusNotFound {
 				return errFailedToAddInboundRules
@@ -320,4 +306,16 @@ func (fc *FirewallController) createInboundRules(serviceList []*v1.Service) []go
 		}
 	}
 	return nodePortInboundRules
+}
+
+func (fc *firewallCache) isEqual(fw *godo.Firewall) bool {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	return cmp.Equal(fc.firewall, fw)
+}
+
+func (fc *firewallCache) getFirewallID() string {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	return fc.firewall.ID
 }
