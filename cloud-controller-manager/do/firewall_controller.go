@@ -151,9 +151,9 @@ func (fc *FirewallController) Run(stopCh <-chan struct{}, fm *firewallManagerOp,
 // Get returns the current public access firewall representation.
 func (fm *firewallManagerOp) Get(ctx context.Context) (*godo.Firewall, error) {
 	// check cache and query the API firewall service to get firewall ID, if it exists. Return it. If not, continue.
-	var fw *godo.Firewall
+	// var fw *godo.Firewall
 	fm.fwCache.mu.RLock()
-	fw = fm.fwCache.firewall
+	fw := fm.fwCache.firewall
 	fm.fwCache.mu.RUnlock()
 
 	if fw != nil {
