@@ -61,7 +61,7 @@ var (
 	fwManagerOp FirewallManager
 )
 
-// fakeFirewallService concrete type that satisfies the FirewallsService interface.
+// fakeFirewallService satisfies the FirewallsService interface.
 type fakeFirewallService struct {
 	getFunc            func(context.Context, string) (*godo.Firewall, *godo.Response, error)
 	createFunc         func(context.Context, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error)
@@ -191,9 +191,6 @@ func TestFirewallController_Get(t *testing.T) {
 			fwCache: newFakeFirewallCache(fakeInboundRule),
 			expectedGodoFirewallGetResp: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
 				return nil, newFakeNotOKResponse(), errFailedToRetrieveFirewallByID
-			},
-			expectedGodoFirewallListResp: func(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error) {
-				return nil, nil, nil
 			},
 			expectedError: errFailedToRetrieveFirewallByID,
 		},
@@ -415,69 +412,45 @@ func TestFirewallController_createInboundRules(t *testing.T) {
 	}
 }
 
-func TestFirewallController_run(t *testing.T) {
-	testcases := []struct {
-		name                           string
-		fwCache                        firewallCache
-		expectedGodoFirewallCreateResp func(context.Context, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error)
-		expectedGodoFirewallGetResp    func(context.Context, string) (*godo.Firewall, *godo.Response, error)
-		expectedGodoFirewallListResp   func(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error)
-		expectedGodoFirewallUpdateResp func(context.Context, string, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error)
-		fwReconcileFreq                time.Duration
-		expectedError                  error
-	}{
-		{
-			name:    "check for data race with high frequency",
-			fwCache: newFakeFirewallCache(fakeInboundRule),
-			expectedGodoFirewallCreateResp: func(context.Context, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
+func TestFirewallController_NoDataRace(t *testing.T) {
+	// setup
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var wg sync.WaitGroup
+
+	gclient := newFakeGodoClient(
+		&fakeFirewallService{
+			listFunc: func(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error) {
 				return nil, newFakeOKResponse(), nil
 			},
-			expectedGodoFirewallGetResp: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
+			updateFunc: func(context.Context, string, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
 				return newFakeFirewall(fakeWorkerFWName, fakeInboundRule), newFakeOKResponse(), nil
 			},
-			expectedGodoFirewallListResp: func(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error) {
+			createFunc: func(context.Context, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
 				return nil, newFakeOKResponse(), nil
 			},
-			expectedGodoFirewallUpdateResp: func(context.Context, string, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
+			getFunc: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
 				return newFakeFirewall(fakeWorkerFWName, fakeInboundRule), newFakeOKResponse(), nil
 			},
-			// force a high frequency to increase chance of discovering data races
-			fwReconcileFreq: time.Duration(0),
 		},
-	}
-	for _, test := range testcases {
-		t.Run(test.name, func(t *testing.T) {
-			// setup
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			var wg sync.WaitGroup
+	)
+	fwManagerOp := newFakeFirewallManagerOp(gclient, newFakeFirewallCache(fakeInboundRule))
+	fc := NewFirewallController(ctx, kclient, gclient, inf.Core().V1().Services(), fwManagerOp, []string{})
 
-			gclient := newFakeGodoClient(
-				&fakeFirewallService{
-					listFunc:   test.expectedGodoFirewallListResp,
-					updateFunc: test.expectedGodoFirewallUpdateResp,
-					createFunc: test.expectedGodoFirewallCreateResp,
-					getFunc:    test.expectedGodoFirewallGetResp,
-				},
-			)
-			fwManagerOp := newFakeFirewallManagerOp(gclient, test.fwCache)
-			fc := NewFirewallController(ctx, kclient, gclient, inf.Core().V1().Services(), fwManagerOp, []string{})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for ctx.Err() == nil { // context has not been terminated
+			fc.ensureReconciledFirewall(ctx)
+		}
+	}()
 
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for ctx.Err() == nil { // context has not been terminated
-					fc.ensureReconciledFirewall(ctx)
-				}
-			}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		fc.Run(ctx.Done(), fwManagerOp, time.Duration(0))
+	}()
 
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				fc.Run(ctx.Done(), fwManagerOp, test.fwReconcileFreq)
-			}()
-
-			wg.Wait()
-		})
-	}
+	wg.Wait()
+	// We do not assert on anything because the goal of this test is to catch data races.
 }
