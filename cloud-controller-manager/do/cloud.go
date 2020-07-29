@@ -114,6 +114,9 @@ func newCloud() (cloudprovider.Interface, error) {
 	clusterVPCID := os.Getenv(doClusterVPCIDEnv)
 	firewallName := os.Getenv(publicAccessFirewallNameEnv)
 	firewallTags := os.Getenv(publicAccessFirewallTagsEnv)
+	if firewallName == "" && firewallTags != "" {
+		return nil, fmt.Errorf("environment variable %q is required when managing firewalls", publicAccessFirewallNameEnv)
+	}
 	if firewallName != "" && firewallTags == "" {
 		return nil, fmt.Errorf("environment variable %q is required when managing firewalls", publicAccessFirewallTagsEnv)
 	}
