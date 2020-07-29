@@ -362,8 +362,22 @@ func TestFirewallController_createInboundRules(t *testing.T) {
 				Tags: []string{"tag"},
 			},
 		},
+		{
+			Protocol:  "tcp",
+			PortRange: "30000",
+			Sources: &godo.Sources{
+				Tags: []string{"tag"},
+			},
+		},
+		{
+			Protocol:  "tcp",
+			PortRange: "32727",
+			Sources: &godo.Sources{
+				Tags: []string{"tag"},
+			},
+		},
 	}
-	testNodePortService := &v1.Service{
+	testNodePortService1 := &v1.Service{
 		Spec: v1.ServiceSpec{
 			Type: v1.ServiceTypeNodePort,
 			Ports: []v1.ServicePort{
@@ -371,6 +385,30 @@ func TestFirewallController_createInboundRules(t *testing.T) {
 					Protocol: "tcp",
 					Port:     31220,
 					NodePort: 31220,
+				},
+			},
+		},
+	}
+	testNodePortService2 := &v1.Service{
+		Spec: v1.ServiceSpec{
+			Type: v1.ServiceTypeNodePort,
+			Ports: []v1.ServicePort{
+				{
+					Protocol: "tcp",
+					Port:     30000,
+					NodePort: 30000,
+				},
+			},
+		},
+	}
+	testNodePortService3 := &v1.Service{
+		Spec: v1.ServiceSpec{
+			Type: v1.ServiceTypeNodePort,
+			Ports: []v1.ServicePort{
+				{
+					Protocol: "tcp",
+					Port:     32727,
+					NodePort: 32727,
 				},
 			},
 		},
@@ -398,7 +436,7 @@ func TestFirewallController_createInboundRules(t *testing.T) {
 		},
 	}
 
-	fakeServiceList := []*v1.Service{testNodePortService, testLBService, testService}
+	fakeServiceList := []*v1.Service{testNodePortService1, testNodePortService2, testNodePortService3, testLBService, testService}
 
 	testcases := []struct {
 		name        string

@@ -104,12 +104,18 @@ func NewFirewallController(
 	serviceInformer.Informer().AddEventHandlerWithResyncPeriod(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: func(cur interface{}) {
+				ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+				defer cancel()
 				fc.ensureReconciledFirewall(ctx)
 			},
 			UpdateFunc: func(old, cur interface{}) {
+				ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+				defer cancel()
 				fc.ensureReconciledFirewall(ctx)
 			},
 			DeleteFunc: func(obj interface{}) {
+				ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+				defer cancel()
 				fc.ensureReconciledFirewall(ctx)
 			},
 		},
@@ -149,7 +155,8 @@ func (fm *firewallManagerOp) Get(ctx context.Context) (*godo.Firewall, error) {
 	// check cache and query the API firewall service to get firewall ID, if it exists. Return it. If not, continue.
 	fw := fm.fwCache.getCachedFirewall()
 	if fw != nil {
-		fw, resp, err := fm.client.Firewalls.Get(ctx, fm.fwCache.getFirewallID())
+		cachedFw := fm.fwCache.getCachedFirewall()
+		fw, resp, err := fm.client.Firewalls.Get(ctx, cachedFw.ID)
 		if err != nil && (resp == nil || resp.StatusCode != http.StatusNotFound) {
 			return nil, errFailedToRetrieveFirewallByID
 		}
@@ -157,9 +164,6 @@ func (fm *firewallManagerOp) Get(ctx context.Context) (*godo.Firewall, error) {
 			klog.Warningf("unable to retrieve firewall by ID because it no longer exists")
 		}
 		if fw != nil {
-			// Update the local cache here in case a consumer, other than Set(), calls this function.
-			// This will ensure that we have an up-to-date cache.
-			fm.fwCache.updateCache(fw)
 			return fw, nil
 		}
 	}
@@ -195,8 +199,9 @@ func (fm *firewallManagerOp) Set(ctx context.Context, svcInboundRules []godo.Inb
 	//
 	// Then we update the local cache with the firewall returned from the Update request.
 	if targetFirewall != nil {
-		fr := fm.createFirewallRequest(fm.workerFirewallName, fm.workerFirewallTags, svcInboundRules)
-		currentFirewall, resp, err := fm.client.Firewalls.Update(ctx, fm.fwCache.getFirewallID(), fr)
+		fr := fm.createFirewallRequest(svcInboundRules)
+		cachedFw := fm.fwCache.getCachedFirewall()
+		currentFirewall, resp, err := fm.client.Firewalls.Update(ctx, cachedFw.ID, fr)
 		if err != nil {
 			if resp == nil || resp.StatusCode != http.StatusNotFound {
 				return errFailedToAddInboundRules
@@ -207,7 +212,7 @@ func (fm *firewallManagerOp) Set(ctx context.Context, svcInboundRules []godo.Inb
 			if err != nil {
 				return errFailedToCreateFirewallOnUpdate
 			}
-			klog.Infof("successfully created firewall")
+			klog.Info("successfully created firewall")
 		}
 		fm.fwCache.updateCache(currentFirewall)
 		return nil
@@ -221,12 +226,12 @@ func (fm *firewallManagerOp) Set(ctx context.Context, svcInboundRules []godo.Inb
 			return err
 		}
 		if currentFirewall == nil {
-			klog.Infof("an existing firewall not found, we need to create one")
+			klog.Info("an existing firewall not found, we need to create one")
 			currentFirewall, err = fm.createFirewall(ctx, svcInboundRules)
 			if err != nil {
 				return err
 			}
-			klog.Infof("successfully created firewall")
+			klog.Info("successfully created firewall")
 		}
 		fm.fwCache.updateCache(currentFirewall)
 	}
@@ -234,16 +239,16 @@ func (fm *firewallManagerOp) Set(ctx context.Context, svcInboundRules []godo.Inb
 }
 
 func (fm *firewallManagerOp) createFirewall(ctx context.Context, svcInboundRules []godo.InboundRule) (*godo.Firewall, error) {
-	fr := fm.createFirewallRequest(fm.workerFirewallName, fm.workerFirewallTags, svcInboundRules)
+	fr := fm.createFirewallRequest(svcInboundRules)
 	currentFirewall, _, err := fm.client.Firewalls.Create(ctx, fr)
 	return currentFirewall, err
 }
 
-func (fm *firewallManagerOp) createFirewallRequest(fwName string, fwTags []string, rules []godo.InboundRule) *godo.FirewallRequest {
+func (fm *firewallManagerOp) createFirewallRequest(rules []godo.InboundRule) *godo.FirewallRequest {
 	return &godo.FirewallRequest{
-		Name:         fwName,
+		Name:         fm.workerFirewallName,
 		InboundRules: rules,
-		Tags:         fwTags,
+		Tags:         fm.workerFirewallTags,
 	}
 }
 
@@ -288,12 +293,6 @@ func (fc *FirewallController) createInboundRules(serviceList []*v1.Service) []go
 		}
 	}
 	return nodePortInboundRules
-}
-
-func (fc *firewallCache) getFirewallID() string {
-	fc.mu.RLock()
-	defer fc.mu.RUnlock()
-	return fc.firewall.ID
 }
 
 func (fc *firewallCache) isEqual(fw *godo.Firewall) bool {

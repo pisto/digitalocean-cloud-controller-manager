@@ -161,7 +161,7 @@ func (c *cloud) Initialize(clientBuilder cloudprovider.ControllerClientBuilder, 
 	go c.serveDebug(stop)
 
 	if c.resources.publicAccessFirewallName == "" {
-		klog.Infof("Nothing to manage since firewall name was not provided")
+		klog.Info("Nothing to manage since firewall name was not provided")
 		return
 	}
 	klog.Infof("Managing the firewall using provided firewall worker name: %s", c.resources.publicAccessFirewallName)
