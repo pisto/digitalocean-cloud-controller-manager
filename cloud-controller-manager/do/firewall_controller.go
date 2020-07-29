@@ -247,12 +247,6 @@ func (fm *firewallManagerOp) createFirewallRequest(fwName string, fwTags []strin
 	}
 }
 
-func (fc *firewallCache) updateCache(currentFirewall *godo.Firewall) {
-	fc.mu.Lock()
-	defer fc.mu.Unlock()
-	fc.firewall = currentFirewall
-}
-
 func (fc *FirewallController) ensureReconciledFirewall(ctx context.Context) error {
 	serviceList, err := fc.serviceLister.List(labels.Everything())
 	if err != nil {
@@ -289,18 +283,17 @@ func (fc *FirewallController) createInboundRules(serviceList []*v1.Service) []go
 							Tags: fc.workerFirewallTags,
 						},
 					},
-					godo.InboundRule{
-						Protocol:  "icmp",
-						PortRange: strconv.Itoa(int(servicePort.NodePort)),
-						Sources: &godo.Sources{
-							Tags: fc.workerFirewallTags,
-						},
-					},
 				)
 			}
 		}
 	}
 	return nodePortInboundRules
+}
+
+func (fc *firewallCache) getFirewallID() string {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	return fc.firewall.ID
 }
 
 func (fc *firewallCache) isEqual(fw *godo.Firewall) bool {
@@ -316,8 +309,8 @@ func (fc *firewallCache) setEqualToCachedFirewall() *godo.Firewall {
 	return fw
 }
 
-func (fc *firewallCache) getFirewallID() string {
-	fc.mu.RLock()
-	defer fc.mu.RUnlock()
-	return fc.firewall.ID
+func (fc *firewallCache) updateCache(currentFirewall *godo.Firewall) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.firewall = currentFirewall
 }
