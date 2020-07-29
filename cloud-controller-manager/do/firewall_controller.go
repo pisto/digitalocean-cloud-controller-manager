@@ -155,8 +155,7 @@ func (fm *firewallManagerOp) Get(ctx context.Context) (*godo.Firewall, error) {
 	// check cache and query the API firewall service to get firewall ID, if it exists. Return it. If not, continue.
 	fw := fm.fwCache.getCachedFirewall()
 	if fw != nil {
-		cachedFw := fm.fwCache.getCachedFirewall()
-		fw, resp, err := fm.client.Firewalls.Get(ctx, cachedFw.ID)
+		fw, resp, err := fm.client.Firewalls.Get(ctx, fw.ID)
 		if err != nil && (resp == nil || resp.StatusCode != http.StatusNotFound) {
 			return nil, errFailedToRetrieveFirewallByID
 		}
@@ -200,8 +199,7 @@ func (fm *firewallManagerOp) Set(ctx context.Context, svcInboundRules []godo.Inb
 	// Then we update the local cache with the firewall returned from the Update request.
 	if targetFirewall != nil {
 		fr := fm.createFirewallRequest(svcInboundRules)
-		cachedFw := fm.fwCache.getCachedFirewall()
-		currentFirewall, resp, err := fm.client.Firewalls.Update(ctx, cachedFw.ID, fr)
+		currentFirewall, resp, err := fm.client.Firewalls.Update(ctx, targetFirewall.ID, fr)
 		if err != nil {
 			if resp == nil || resp.StatusCode != http.StatusNotFound {
 				return errFailedToAddInboundRules
