@@ -45,7 +45,7 @@ By default, no firewall will be managed. To enable firewall management, the foll
 * `PUBLIC_ACCESS_FIREWALL_NAME`: the name of the firewall to use.
 * `PUBLIC_ACCESS_FIREWALL_TAGS`: a comma-separated list of tags that match the worker droplets the firewall should target.
 
-Managed firewalls should **not** be modified directly as such changes will be reverted eventually, including recreation of the firewall should it ever be found missing.
+Managed firewalls should **not** be modified directly as such changes will be reverted eventually, including re-creation of the firewall should it ever be found missing.
 
 If management of the firewall is not desired anymore, the environment variables must be unset before the firewall can be deleted by the user manually.
 
