@@ -164,7 +164,7 @@ func (c *cloud) Initialize(clientBuilder cloudprovider.ControllerClientBuilder, 
 		klog.Infof("Nothing to manage since firewall name was not provided")
 		return
 	}
-	klog.Infof("Managing the firewall using provided firewall worker name")
+	klog.Infof("Managing the firewall using provided firewall worker name: %s", c.resources.publicAccessFirewallName)
 	fm := &firewallManagerOp{
 		client:             c.client,
 		workerFirewallName: c.resources.publicAccessFirewallName,

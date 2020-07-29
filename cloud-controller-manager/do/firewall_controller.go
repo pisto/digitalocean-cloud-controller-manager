@@ -147,7 +147,7 @@ func (fc *FirewallController) Run(stopCh <-chan struct{}, fm *firewallManagerOp,
 // Get returns the current public access firewall representation.
 func (fm *firewallManagerOp) Get(ctx context.Context) (*godo.Firewall, error) {
 	// check cache and query the API firewall service to get firewall ID, if it exists. Return it. If not, continue.
-	fw := fm.fwCache.setEqualToCachedFirewall()
+	fw := fm.fwCache.getCachedFirewall()
 	if fw != nil {
 		fw, resp, err := fm.client.Firewalls.Get(ctx, fm.fwCache.getFirewallID())
 		if err != nil && (resp == nil || resp.StatusCode != http.StatusNotFound) {
@@ -178,7 +178,7 @@ func (fm *firewallManagerOp) Get(ctx context.Context) (*godo.Firewall, error) {
 
 // Set applies the given inbound rules to the public access firewall when the current rules and target rules differ.
 func (fm *firewallManagerOp) Set(ctx context.Context, svcInboundRules []godo.InboundRule) error {
-	targetFirewall := fm.fwCache.setEqualToCachedFirewall()
+	targetFirewall := fm.fwCache.getCachedFirewall()
 	isEqual := false
 	// A locally cached firewall with matching rules means there is nothing to update.
 	if targetFirewall != nil && cmp.Equal(targetFirewall.InboundRules, svcInboundRules) {
@@ -302,7 +302,7 @@ func (fc *firewallCache) isEqual(fw *godo.Firewall) bool {
 	return cmp.Equal(fc.firewall, fw)
 }
 
-func (fc *firewallCache) setEqualToCachedFirewall() *godo.Firewall {
+func (fc *firewallCache) getCachedFirewall() *godo.Firewall {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
 	fw := fc.firewall
