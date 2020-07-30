@@ -520,3 +520,12 @@ func TestFirewallController_NoDataRace(t *testing.T) {
 	wg.Wait()
 	// We do not assert on anything because the goal of this test is to catch data races.
 }
+
+// func TestFirewallController_runCallsCreateWhenFirewallDoesNotExist(t *testing.T) {
+
+// }
+
+// func TestFirewallController_runWithModifiedFirewall(t *testing.T) {
+// rules field
+// name field
+// }

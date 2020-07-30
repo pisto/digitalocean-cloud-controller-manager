@@ -142,6 +142,7 @@ func (fc *FirewallController) Run(stopCh <-chan struct{}, fm *firewallManagerOp,
 				return
 			}
 		}
+		fm.fwCache.updateCache(currentFirewall)
 		err = fc.ensureReconciledFirewall(ctx)
 		if err != nil {
 			klog.Errorf("failed to reconcile worker firewall: %s", err)
