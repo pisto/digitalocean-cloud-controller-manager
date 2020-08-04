@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/digitalocean/godo"
@@ -169,7 +170,10 @@ func (c *cloud) Initialize(clientBuilder cloudprovider.ControllerClientBuilder, 
 	}
 	klog.Infof("Managing the firewall using provided firewall worker name: %s", c.resources.publicAccessFirewallName)
 	fm := &firewallManagerOp{
-		client:             c.client,
+		client: c.client,
+		fwCache: firewallCache{
+			mu: new(sync.RWMutex),
+		},
 		workerFirewallName: c.resources.publicAccessFirewallName,
 		workerFirewallTags: c.resources.publicAccessFirewallTags,
 	}
