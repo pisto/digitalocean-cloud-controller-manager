@@ -190,17 +190,17 @@ func TestFirewallController_Get(t *testing.T) {
 			name:    "return error when error on GET firewall by ID",
 			fwCache: newFakeFirewallCache([]godo.InboundRule{fakeInboundRule}),
 			expectedGodoFirewallGetResp: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
-				return nil, newFakeNotOKResponse(), errFailedToRetrieveFirewallByID
+				return nil, newFakeNotOKResponse(), errors.New("failed to get firewall by ID")
 			},
-			expectedError: errFailedToRetrieveFirewallByID,
+			expectedError: errors.New("failed to get firewall by ID"),
 		},
 		{
 			name:    "return error when error on List firewalls",
 			fwCache: newFakeFirewallCacheEmpty(),
 			expectedGodoFirewallListResp: func(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error) {
-				return nil, newFakeNotOKResponse(), errFailedToRetrieveFirewallList
+				return nil, newFakeNotOKResponse(), errors.New("failed to list firewalls")
 			},
-			expectedError: errFailedToRetrieveFirewallList,
+			expectedError: errors.New("failed to list firewalls"),
 		},
 		{
 			name:    "nothing to return when there is no ID or firewall name match in firewall list",
@@ -297,16 +297,16 @@ func TestFirewallController_Set(t *testing.T) {
 			expectedGodoFirewallCreateResp: func(context.Context, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
 				return nil, newFakeNotOKResponse(), errors.New("unexpected error")
 			},
-			expectedError: errFailedToCreateFirewallOnUpdate,
+			expectedError: errors.New("failed to create firewall"),
 		},
 		{
 			name:         "return error when failing to add inbound rules on update request to firewall API",
 			fwCache:      newFakeFirewallCache([]godo.InboundRule{diffFakeInboundRule}),
 			inboundRules: []godo.InboundRule{fakeInboundRule},
 			expectedGodoFirewallUpdateResp: func(context.Context, string, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
-				return nil, newFakeNotOKResponse(), errFailedToAddInboundRules
+				return nil, newFakeNotOKResponse(), errors.New("failed to add inbound rules")
 			},
-			expectedError: errFailedToAddInboundRules,
+			expectedError: errors.New("failed to add inbound rules"),
 		},
 		{
 			name:         "when the firewall cache is nil return existing firewall from API then update cache",

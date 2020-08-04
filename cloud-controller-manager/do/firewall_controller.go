@@ -18,7 +18,7 @@ package do
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"sync"
@@ -40,16 +40,16 @@ const (
 	// Interval of synchronizing service status from apiserver.
 	serviceSyncPeriod = 30 * time.Second
 	// Frequency at which the firewall controller runs.
-	firewallReconcileFrequency = 5 * time.Minute
+	firewallReconcileFrequency = 5 * time.Second
 )
 
 var (
-	// Sentinel errors make it easier to test.
-	errFailedToAddInboundRules        = errors.New("failed to add new firewall inbound rules")
-	errFailedToCreateFirewallOnUpdate = errors.New("failed to create firewall after found missing on update")
-	errFailedToListServices           = errors.New("failed to list services")
-	errFailedToRetrieveFirewallByID   = errors.New("failed to retrieve firewall by ID")
-	errFailedToRetrieveFirewallList   = errors.New("failed to retrieve list of firewalls from DO API")
+// Sentinel errors make it easier to test.
+// errFailedToAddInboundRules = errors.New("failed to add new firewall inbound rules")
+// errFailedToCreateFirewallOnUpdate = errors.New("failed to create firewall after found missing on update")
+// errFailedToListServices         = errors.New("failed to list services")
+// errFailedToRetrieveFirewallByID = errors.New("failed to retrieve firewall by ID")
+// errFailedToRetrieveFirewallList = errors.New("failed to retrieve list of firewalls from DO API")
 )
 
 // firewallCache stores a cached firewall and mutex to handle concurrent access.
@@ -141,10 +141,13 @@ func (fc *FirewallController) Run(stopCh <-chan struct{}, fm *firewallManagerOp,
 		ctx, cancel := context.WithTimeout(context.Background(), fwReconcileFrequency)
 		defer cancel()
 
+		klog.V(5).Info("started Run() functioon")
+
 		currentFirewall, err := fc.fwManager.Get(ctx)
 		if err != nil {
 			klog.Errorf("failed to get worker firewall: %s", err)
 		}
+		klog.V(5).Info("got a firewall")
 
 		if currentFirewall != nil {
 			if fm.fwCache.isEqual(currentFirewall) {
@@ -152,10 +155,12 @@ func (fc *FirewallController) Run(stopCh <-chan struct{}, fm *firewallManagerOp,
 			}
 		}
 		fm.fwCache.updateCache(currentFirewall)
+		klog.V(5).Info("successfully updated cache")
 		err = fc.ensureReconciledFirewall(ctx)
 		if err != nil {
 			klog.Errorf("failed to reconcile worker firewall: %s", err)
 		}
+		klog.V(5).Info("successfully reconciled firewall")
 
 	}, fwReconcileFrequency, stopCh)
 }
@@ -167,7 +172,7 @@ func (fm *firewallManagerOp) Get(ctx context.Context) (*godo.Firewall, error) {
 	if fw != nil {
 		fw, resp, err := fm.client.Firewalls.Get(ctx, fw.ID)
 		if err != nil && (resp == nil || resp.StatusCode != http.StatusNotFound) {
-			return nil, errFailedToRetrieveFirewallByID
+			return nil, fmt.Errorf("failed to get firewall by ID: %v", err)
 		}
 		if resp.StatusCode == http.StatusNotFound {
 			klog.Warningf("unable to retrieve firewall by ID because it no longer exists")
@@ -184,7 +189,7 @@ func (fm *firewallManagerOp) Get(ctx context.Context) (*godo.Firewall, error) {
 	klog.Info("filtering firewall list for the firewall that has the expected firewall name")
 	fw, err := filterFirewallList(ctx, fm.client, f)
 	if err != nil {
-		return nil, errFailedToRetrieveFirewallList
+		return nil, fmt.Errorf("failed to list firewalls: %v", err)
 	}
 	return fw, nil
 }
@@ -194,8 +199,14 @@ func (fm *firewallManagerOp) Set(ctx context.Context, svcInboundRules []godo.Inb
 	targetFirewall := fm.fwCache.getCachedFirewall()
 	isEqual := false
 	// A locally cached firewall with matching rules means there is nothing to update.
-	if targetFirewall != nil && cmp.Equal(targetFirewall.InboundRules, svcInboundRules) {
-		isEqual = true
+	if targetFirewall != nil {
+		if cmp.Equal(targetFirewall.InboundRules, svcInboundRules) {
+			isEqual = true
+		}
+
+		// if svcInboundRules == nil {
+
+		// }
 	}
 
 	if isEqual {
@@ -212,13 +223,13 @@ func (fm *firewallManagerOp) Set(ctx context.Context, svcInboundRules []godo.Inb
 		currentFirewall, resp, err := fm.client.Firewalls.Update(ctx, targetFirewall.ID, fr)
 		if err != nil {
 			if resp == nil || resp.StatusCode != http.StatusNotFound {
-				return errFailedToAddInboundRules
+				return fmt.Errorf("failed to add inbound rules: %v", err)
 			}
 			// Firewall does not exist, so we need to create a new firewall with the
 			// updated inbound rules.
 			currentFirewall, err = fm.createFirewall(ctx, svcInboundRules)
 			if err != nil {
-				return errFailedToCreateFirewallOnUpdate
+				return fmt.Errorf("failed to create firewall: %v", err)
 			}
 			klog.Info("successfully created firewall")
 		}
@@ -263,7 +274,8 @@ func (fm *firewallManagerOp) createFirewallRequest(rules []godo.InboundRule) *go
 func (fc *FirewallController) ensureReconciledFirewall(ctx context.Context) error {
 	serviceList, err := fc.serviceLister.List(labels.Everything())
 	if err != nil {
-		return errFailedToListServices
+		// return errFailedToListServices
+		return fmt.Errorf("failed to list services: %v", err)
 	}
 	inboundRules := fc.createInboundRules(serviceList)
 	err = fc.fwManager.Set(ctx, inboundRules)
@@ -324,3 +336,8 @@ func (fc *firewallCache) updateCache(currentFirewall *godo.Firewall) {
 	defer fc.mu.Unlock()
 	fc.firewall = currentFirewall
 }
+
+// func (fc *firewallCache) resetCache() {
+// 	fc.mu.Lock()
+// 	defer
+// }
