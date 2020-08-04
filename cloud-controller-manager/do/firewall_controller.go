@@ -38,9 +38,9 @@ import (
 
 const (
 	// Interval of synchronizing service status from apiserver.
-	serviceSyncPeriod = 5 * time.Second
+	serviceSyncPeriod = 30 * time.Second
 	// Frequency at which the firewall controller runs.
-	firewallReconcileFrequency = 5 * time.Second
+	firewallReconcileFrequency = 5 * time.Minute
 )
 
 var (
@@ -50,7 +50,6 @@ var (
 	errFailedToListServices           = errors.New("failed to list services")
 	errFailedToRetrieveFirewallByID   = errors.New("failed to retrieve firewall by ID")
 	errFailedToRetrieveFirewallList   = errors.New("failed to retrieve list of firewalls from DO API")
-	errFailedToReconcileFirewall      = errors.New("failed to ensure reconciled firewall")
 )
 
 // firewallCache stores a cached firewall and mutex to handle concurrent access.
@@ -107,17 +106,26 @@ func NewFirewallController(
 			AddFunc: func(cur interface{}) {
 				ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 				defer cancel()
-				fc.ensureReconciledFirewall(ctx)
+				err := fc.ensureReconciledFirewall(ctx)
+				if err != nil {
+					klog.Errorf("failed to reconcile worker firewall: %s", err)
+				}
 			},
 			UpdateFunc: func(old, cur interface{}) {
 				ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 				defer cancel()
-				fc.ensureReconciledFirewall(ctx)
+				err := fc.ensureReconciledFirewall(ctx)
+				if err != nil {
+					klog.Errorf("failed to reconcile worker firewall: %s", err)
+				}
 			},
 			DeleteFunc: func(obj interface{}) {
 				ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 				defer cancel()
-				fc.ensureReconciledFirewall(ctx)
+				err := fc.ensureReconciledFirewall(ctx)
+				if err != nil {
+					klog.Errorf("failed to reconcile worker firewall: %s", err)
+				}
 			},
 		},
 		serviceSyncPeriod,
@@ -260,7 +268,7 @@ func (fc *FirewallController) ensureReconciledFirewall(ctx context.Context) erro
 	inboundRules := fc.createInboundRules(serviceList)
 	err = fc.fwManager.Set(ctx, inboundRules)
 	if err != nil {
-		return errFailedToReconcileFirewall
+		return err
 	}
 	return nil
 }
