@@ -138,6 +138,7 @@ func NewFirewallController(
 // Run starts the firewall controller loop.
 func (fc *FirewallController) Run(stopCh <-chan struct{}, fm *firewallManagerOp, fwReconcileFrequency time.Duration) {
 	wait.Until(func() {
+		klog.V(5).Info("started run!!!")
 		ctx, cancel := context.WithTimeout(context.Background(), fwReconcileFrequency)
 		defer cancel()
 
