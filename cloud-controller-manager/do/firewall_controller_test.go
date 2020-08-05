@@ -190,17 +190,17 @@ func TestFirewallController_Get(t *testing.T) {
 			name:    "return error when error on GET firewall by ID",
 			fwCache: newFakeFirewallCache([]godo.InboundRule{fakeInboundRule}),
 			expectedGodoFirewallGetResp: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
-				return nil, newFakeNotOKResponse(), errors.New("failed to get firewall by ID")
+				return nil, newFakeNotOKResponse(), errors.New("failed to retrieve firewall by ID")
 			},
-			expectedError: errors.New("failed to get firewall by ID"),
+			expectedError: errors.New("failed to retrieve firewall by ID"),
 		},
 		{
 			name:    "return error when error on List firewalls",
 			fwCache: newFakeFirewallCacheEmpty(),
 			expectedGodoFirewallListResp: func(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error) {
-				return nil, newFakeNotOKResponse(), errors.New("failed to list firewalls")
+				return nil, newFakeNotOKResponse(), errors.New("failed to retrieve list of firewalls from DO API")
 			},
-			expectedError: errors.New("failed to list firewalls"),
+			expectedError: errors.New("failed to retrieve list of firewalls from DO API"),
 		},
 		{
 			name:    "nothing to return when there is no ID or firewall name match in firewall list",
@@ -250,8 +250,8 @@ func TestFirewallController_Get(t *testing.T) {
 			fwManagerOp = newFakeFirewallManagerOp(gclient, test.fwCache)
 
 			fw, err := fwManagerOp.Get(ctx)
-			if want, got := test.expectedError, err; want != got {
-				t.Errorf("incorrect firewall config\nwant: %#v\n got: %#v", want, got)
+			if (err != nil && test.expectedError == nil) || (err == nil && test.expectedError != nil) {
+				t.Errorf("incorrect firewall config\nwant: %#v\n got: %#v", test.expectedError, err)
 			}
 
 			if diff := cmp.Diff(test.expectedFirewall, fw); diff != "" {
@@ -332,8 +332,8 @@ func TestFirewallController_Set(t *testing.T) {
 			fc := NewFirewallController(ctx, kclient, gclient, inf.Core().V1().Services(), fwManagerOp, []string{})
 
 			err := fc.fwManager.Set(ctx, test.inboundRules)
-			if want, got := test.expectedError, err; want != got {
-				t.Errorf("incorrect firewall config\nwant: %#v\n got: %#v", want, got)
+			if (err != nil && test.expectedError == nil) || (err == nil && test.expectedError != nil) {
+				t.Errorf("incorrect firewall config\nwant: %#v\n got: %#v", test.expectedError, err)
 			}
 		})
 	}
@@ -495,6 +495,9 @@ func TestFirewallController_NoDataRace(t *testing.T) {
 			},
 			getFunc: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
 				return newFakeFirewall(fakeWorkerFWName, fakeInboundRule), newFakeOKResponse(), nil
+			},
+			removeRulesFunc: func(context.Context, string, *godo.FirewallRulesRequest) (*godo.Response, error) {
+				return newFakeOKResponse(), nil
 			},
 		},
 	)
