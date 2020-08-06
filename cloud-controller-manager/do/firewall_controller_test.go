@@ -263,15 +263,16 @@ func TestFirewallController_Get(t *testing.T) {
 
 func TestFirewallController_Set(t *testing.T) {
 	testcases := []struct {
-		name                           string
-		fwCache                        firewallCache
-		inboundRules                   []godo.InboundRule
-		expectedGodoFirewallCreateResp func(context.Context, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error)
-		expectedGodoFirewallGetResp    func(context.Context, string) (*godo.Firewall, *godo.Response, error)
-		expectedGodoFirewallListResp   func(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error)
-		expectedGodoFirewallUpdateResp func(context.Context, string, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error)
-		expectedError                  error
-		expectedFirewall               *godo.Firewall
+		name                             string
+		fwCache                          firewallCache
+		inboundRules                     []godo.InboundRule
+		expectedGodoFirewallCreateResp   func(context.Context, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error)
+		expectedGodoFirewallGetResp      func(context.Context, string) (*godo.Firewall, *godo.Response, error)
+		expectedGodoFirewallListResp     func(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error)
+		expectedGodoFirewallUpdateResp   func(context.Context, string, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error)
+		expectedGodoFirewallAddRulesResp func(context.Context, string, *godo.FirewallRulesRequest) (*godo.Response, error)
+		expectedError                    error
+		expectedFirewall                 *godo.Firewall
 	}{
 		{
 			name:         "create firewall when cache does not exist (i.e. initial startup)",
@@ -291,6 +292,9 @@ func TestFirewallController_Set(t *testing.T) {
 			expectedGodoFirewallUpdateResp: func(context.Context, string, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
 				return nil, newFakeNotFoundResponse(), errors.New("unexpected error")
 			},
+			expectedGodoFirewallAddRulesResp: func(context.Context, string, *godo.FirewallRulesRequest) (*godo.Response, error) {
+				return newFakeNotOKResponse(), errors.New("unexpected error")
+			},
 			expectedGodoFirewallListResp: func(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error) {
 				return []godo.Firewall{*newFakeFirewall(fakeWorkerFWName, fakeInboundRule)}, newFakeOKResponse(), nil
 			},
@@ -305,6 +309,9 @@ func TestFirewallController_Set(t *testing.T) {
 			inboundRules: []godo.InboundRule{fakeInboundRule},
 			expectedGodoFirewallUpdateResp: func(context.Context, string, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
 				return nil, newFakeNotOKResponse(), errors.New("failed to add inbound rules")
+			},
+			expectedGodoFirewallAddRulesResp: func(context.Context, string, *godo.FirewallRulesRequest) (*godo.Response, error) {
+				return newFakeNotOKResponse(), errors.New("unexpected error")
 			},
 			expectedError: errors.New("failed to add inbound rules"),
 		},
@@ -322,10 +329,11 @@ func TestFirewallController_Set(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			gclient := newFakeGodoClient(
 				&fakeFirewallService{
-					listFunc:   test.expectedGodoFirewallListResp,
-					updateFunc: test.expectedGodoFirewallUpdateResp,
-					createFunc: test.expectedGodoFirewallCreateResp,
-					getFunc:    test.expectedGodoFirewallGetResp,
+					listFunc:     test.expectedGodoFirewallListResp,
+					updateFunc:   test.expectedGodoFirewallUpdateResp,
+					createFunc:   test.expectedGodoFirewallCreateResp,
+					getFunc:      test.expectedGodoFirewallGetResp,
+					addRulesFunc: test.expectedGodoFirewallAddRulesResp,
 				},
 			)
 			fwManagerOp = newFakeFirewallManagerOp(gclient, test.fwCache)
@@ -496,7 +504,7 @@ func TestFirewallController_NoDataRace(t *testing.T) {
 			getFunc: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
 				return newFakeFirewall(fakeWorkerFWName, fakeInboundRule), newFakeOKResponse(), nil
 			},
-			removeRulesFunc: func(context.Context, string, *godo.FirewallRulesRequest) (*godo.Response, error) {
+			addRulesFunc: func(context.Context, string, *godo.FirewallRulesRequest) (*godo.Response, error) {
 				return newFakeOKResponse(), nil
 			},
 		},
