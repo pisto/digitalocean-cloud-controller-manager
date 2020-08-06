@@ -61,6 +61,12 @@ var (
 				Addresses: []string{"0.0.0.0/0", "::/0"},
 			},
 		},
+		{
+			Protocol: "icmp",
+			Destinations: &godo.Destinations{
+				Addresses: []string{"0.0.0.0/0", "::/0"},
+			},
+		},
 	}
 )
 
