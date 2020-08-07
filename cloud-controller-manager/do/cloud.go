@@ -177,7 +177,7 @@ func (c *cloud) Initialize(clientBuilder cloudprovider.ControllerClientBuilder, 
 		workerFirewallName: c.resources.publicAccessFirewallName,
 		workerFirewallTags: c.resources.publicAccessFirewallTags,
 	}
-	fc := NewFirewallController(context.Background(), c.resources.kclient, c.client, sharedInformer.Core().V1().Services(), fm, fm.workerFirewallTags)
+	fc := NewFirewallController(context.Background(), c.resources.kclient, c.client, sharedInformer.Core().V1().Services(), fm, fm.workerFirewallTags, fm.workerFirewallName)
 
 	go fc.Run(stop, fm, firewallReconcileFrequency)
 }
