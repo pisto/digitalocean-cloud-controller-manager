@@ -60,6 +60,17 @@ var (
 			},
 		},
 	}
+	testDiffOutboundRules = []godo.OutboundRule{
+		{
+			Protocol:  "udp",
+			PortRange: "all",
+			Destinations: &godo.Destinations{
+				Addresses: []string{"0.0.0.0/0", "::/0"},
+			},
+		},
+	}
+	testInboundRules     = []godo.InboundRule{fakeInboundRule}
+	testDiffInboundRules = []godo.InboundRule{diffFakeInboundRule}
 
 	fakeInboundRule = godo.InboundRule{
 		Protocol:  "tcp",
@@ -69,7 +80,6 @@ var (
 			DropletIDs: []int{1},
 		},
 	}
-
 	diffFakeInboundRule = godo.InboundRule{
 		Protocol:  "tcp",
 		PortRange: "32000",
@@ -158,13 +168,45 @@ func (f *fakeFirewallService) RemoveRules(ctx context.Context, fID string, rr *g
 	return f.removeRulesFunc(ctx, fID, rr)
 }
 
-func newFakeFirewall(workerFirewallName string, inboundRule godo.InboundRule) *godo.Firewall {
+func newFakeFirewall() *godo.Firewall {
 	return &godo.Firewall{
 		ID:            "123",
-		Name:          workerFirewallName,
+		Name:          testWorkerFWName,
 		Tags:          testWorkerFWTags,
-		InboundRules:  []godo.InboundRule{inboundRule},
+		InboundRules:  testInboundRules,
 		OutboundRules: testOutboundRules,
+	}
+}
+
+func newFakeFirewallCache() firewallCache {
+	return firewallCache{
+		mu: new(sync.RWMutex),
+		firewall: &godo.Firewall{
+			ID:            "123",
+			Name:          testWorkerFWName,
+			Tags:          testWorkerFWTags,
+			InboundRules:  testInboundRules,
+			OutboundRules: testOutboundRules,
+		},
+	}
+}
+
+func newFakeFirewallCacheWithDiffInboundRules() firewallCache {
+	return firewallCache{
+		mu: new(sync.RWMutex),
+		firewall: &godo.Firewall{
+			ID:            "123",
+			Name:          testWorkerFWName,
+			Tags:          testWorkerFWTags,
+			InboundRules:  testDiffInboundRules,
+			OutboundRules: testOutboundRules,
+		},
+	}
+}
+
+func newFakeFirewallCacheEmpty() firewallCache {
+	return firewallCache{
+		mu: new(sync.RWMutex),
 	}
 }
 
@@ -174,25 +216,6 @@ func newFakeFirewallManagerOp(client *godo.Client, cache firewallCache) *firewal
 		fwCache:            cache,
 		workerFirewallName: testWorkerFWName,
 		workerFirewallTags: testWorkerFWTags,
-	}
-}
-
-func newFakeFirewallCache(inboundRules []godo.InboundRule) firewallCache {
-	return firewallCache{
-		mu: new(sync.RWMutex),
-		firewall: &godo.Firewall{
-			ID:            "123",
-			Name:          testWorkerFWName,
-			Tags:          testWorkerFWTags,
-			InboundRules:  inboundRules,
-			OutboundRules: testOutboundRules,
-		},
-	}
-}
-
-func newFakeFirewallCacheEmpty() firewallCache {
-	return firewallCache{
-		mu: new(sync.RWMutex),
 	}
 }
 
@@ -213,7 +236,7 @@ func TestFirewallController_Get(t *testing.T) {
 	}{
 		{
 			name:    "return error when error on GET firewall by ID",
-			fwCache: newFakeFirewallCache([]godo.InboundRule{fakeInboundRule}),
+			fwCache: newFakeFirewallCache(),
 			expectedGodoFirewallGetResp: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
 				return nil, newFakeNotOKResponse(), errors.New("failed to retrieve firewall by ID")
 			},
@@ -229,7 +252,7 @@ func TestFirewallController_Get(t *testing.T) {
 		},
 		{
 			name:    "nothing to return when there is no ID or firewall name match in firewall list",
-			fwCache: newFakeFirewallCache([]godo.InboundRule{fakeInboundRule}),
+			fwCache: newFakeFirewallCache(),
 			expectedGodoFirewallGetResp: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
 				return nil, newFakeNotFoundResponse(), nil
 			},
@@ -239,22 +262,22 @@ func TestFirewallController_Get(t *testing.T) {
 		},
 		{
 			name:    "handle 404 response code from GET firewall by ID and instead return firewall from List",
-			fwCache: newFakeFirewallCache([]godo.InboundRule{fakeInboundRule}),
+			fwCache: newFakeFirewallCache(),
 			expectedGodoFirewallGetResp: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
 				return nil, newFakeNotFoundResponse(), errors.New("got an error")
 			},
 			expectedGodoFirewallListResp: func(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error) {
-				return []godo.Firewall{*newFakeFirewall(testWorkerFWName, fakeInboundRule)}, newFakeOKResponse(), nil
+				return []godo.Firewall{*newFakeFirewall()}, newFakeOKResponse(), nil
 			},
-			expectedFirewall: newFakeFirewall(testWorkerFWName, fakeInboundRule),
+			expectedFirewall: newFakeFirewall(),
 		},
 		{
 			name:    "get firewall from API with cached firewall ID",
-			fwCache: newFakeFirewallCache([]godo.InboundRule{fakeInboundRule}),
+			fwCache: newFakeFirewallCache(),
 			expectedGodoFirewallGetResp: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
-				return newFakeFirewall(testWorkerFWName, fakeInboundRule), newFakeOKResponse(), nil
+				return newFakeFirewall(), newFakeOKResponse(), nil
 			},
-			expectedFirewall: newFakeFirewall(testWorkerFWName, fakeInboundRule),
+			expectedFirewall: newFakeFirewall(),
 		},
 		{
 			name:    "when cache does not exist",
@@ -301,12 +324,92 @@ func TestFirewallController_Set(t *testing.T) {
 	}{
 		{
 			name:    "do nothing when firewall is already properly configured",
-			fwCache: newFakeFirewallCache([]godo.InboundRule{fakeInboundRule}),
+			fwCache: newFakeFirewallCache(),
 			firewallRequest: &godo.FirewallRequest{
 				Name:          testWorkerFWName,
-				InboundRules:  []godo.InboundRule{fakeInboundRule},
+				InboundRules:  testInboundRules,
 				OutboundRules: testOutboundRules,
 				Tags:          testWorkerFWTags,
+			},
+		},
+		{
+			name:    "update firewall when inbound rules are improperly configured",
+			fwCache: newFakeFirewallCache(),
+			firewallRequest: &godo.FirewallRequest{
+				Name:          testWorkerFWName,
+				InboundRules:  testDiffInboundRules,
+				OutboundRules: testOutboundRules,
+				Tags:          testWorkerFWTags,
+			},
+			expectedGodoFirewallGetResp: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
+				return newFakeFirewall(), newFakeOKResponse(), nil
+			},
+			expectedGodoFirewallUpdateResp: func(context.Context, string, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
+				return newFakeFirewall(), newFakeOKResponse(), nil
+			},
+		},
+		{
+			name:    "update firewall when outbound rules are improperly configured",
+			fwCache: newFakeFirewallCache(),
+			firewallRequest: &godo.FirewallRequest{
+				Name:          testWorkerFWName,
+				InboundRules:  testInboundRules,
+				OutboundRules: testDiffOutboundRules,
+				Tags:          testWorkerFWTags,
+			},
+			expectedGodoFirewallGetResp: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
+				return newFakeFirewall(), newFakeOKResponse(), nil
+			},
+			expectedGodoFirewallUpdateResp: func(context.Context, string, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
+				return newFakeFirewall(), newFakeOKResponse(), nil
+			},
+		},
+		{
+			name:    "update firewall when name is improperly configured",
+			fwCache: newFakeFirewallCache(),
+			firewallRequest: &godo.FirewallRequest{
+				Name:          "wrong name",
+				InboundRules:  testInboundRules,
+				OutboundRules: testOutboundRules,
+				Tags:          testWorkerFWTags,
+			},
+			expectedGodoFirewallGetResp: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
+				return newFakeFirewall(), newFakeOKResponse(), nil
+			},
+			expectedGodoFirewallUpdateResp: func(context.Context, string, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
+				return newFakeFirewall(), newFakeOKResponse(), nil
+			},
+		},
+		{
+			name:    "update firewall when tags are improperly configured",
+			fwCache: newFakeFirewallCache(),
+			firewallRequest: &godo.FirewallRequest{
+				Name:          testWorkerFWName,
+				InboundRules:  testInboundRules,
+				OutboundRules: testOutboundRules,
+				Tags:          []string{"wrong-tag"},
+			},
+			expectedGodoFirewallGetResp: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
+				return newFakeFirewall(), newFakeOKResponse(), nil
+			},
+			expectedGodoFirewallUpdateResp: func(context.Context, string, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
+				return newFakeFirewall(), newFakeOKResponse(), nil
+			},
+		},
+		{
+			name:    "update firewall when everything is improperly configured",
+			fwCache: newFakeFirewallCache(),
+			firewallRequest: &godo.FirewallRequest{
+				Name:          "wrong name",
+				InboundRules:  testDiffInboundRules,
+				OutboundRules: testDiffOutboundRules,
+				Tags:          []string{"wrong-tag"},
+			},
+			expectedGodoFirewallGetResp: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
+				return newFakeFirewall(), newFakeOKResponse(), nil
+			},
+			expectedGodoFirewallUpdateResp: func(context.Context, string, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
+				return newFakeFirewall(), newFakeOKResponse(), nil
 			},
 		},
 		{
@@ -314,7 +417,7 @@ func TestFirewallController_Set(t *testing.T) {
 			fwCache: newFakeFirewallCacheEmpty(),
 			firewallRequest: &godo.FirewallRequest{
 				Name:          testWorkerFWName,
-				InboundRules:  []godo.InboundRule{fakeInboundRule},
+				InboundRules:  testInboundRules,
 				OutboundRules: testOutboundRules,
 				Tags:          testWorkerFWTags,
 			},
@@ -322,15 +425,15 @@ func TestFirewallController_Set(t *testing.T) {
 				return []godo.Firewall{}, newFakeNotFoundResponse(), nil
 			},
 			expectedGodoFirewallCreateResp: func(context.Context, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
-				return newFakeFirewall(testWorkerFWName, fakeInboundRule), newFakeOKResponse(), nil
+				return newFakeFirewall(), newFakeOKResponse(), nil
 			},
 		},
 		{
 			name:    "failing to update the firewall because of an unexpected error",
-			fwCache: newFakeFirewallCache([]godo.InboundRule{diffFakeInboundRule}),
+			fwCache: newFakeFirewallCacheWithDiffInboundRules(),
 			firewallRequest: &godo.FirewallRequest{
 				Name:          testWorkerFWName,
-				InboundRules:  []godo.InboundRule{fakeInboundRule},
+				InboundRules:  testInboundRules,
 				OutboundRules: testOutboundRules,
 				Tags:          testWorkerFWTags,
 			},
@@ -341,7 +444,7 @@ func TestFirewallController_Set(t *testing.T) {
 				return newFakeNotOKResponse(), errors.New("unexpected error")
 			},
 			expectedGodoFirewallListResp: func(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error) {
-				return []godo.Firewall{*newFakeFirewall(testWorkerFWName, fakeInboundRule)}, newFakeOKResponse(), nil
+				return []godo.Firewall{*newFakeFirewall()}, newFakeOKResponse(), nil
 			},
 			expectedGodoFirewallCreateResp: func(context.Context, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
 				return nil, newFakeNotOKResponse(), errors.New("unexpected error")
@@ -353,7 +456,7 @@ func TestFirewallController_Set(t *testing.T) {
 			fwCache: newFakeFirewallCacheEmpty(),
 			firewallRequest: &godo.FirewallRequest{
 				Name:          testWorkerFWName,
-				InboundRules:  []godo.InboundRule{fakeInboundRule},
+				InboundRules:  testInboundRules,
 				OutboundRules: testOutboundRules,
 				Tags:          testWorkerFWTags,
 			},
@@ -361,16 +464,16 @@ func TestFirewallController_Set(t *testing.T) {
 				return nil, newFakeNotOKResponse(), errors.New("unexpected error")
 			},
 			expectedGodoFirewallListResp: func(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error) {
-				return []godo.Firewall{*newFakeFirewall(testWorkerFWName, fakeInboundRule)}, newFakeNotOKResponse(), errors.New("unexpected error")
+				return []godo.Firewall{*newFakeFirewall()}, newFakeNotOKResponse(), errors.New("unexpected error")
 			},
 			expectedError: errors.New("failed to create firewall"),
 		},
 		{
 			name:    "return error when failing to add inbound rules on update request to firewall API",
-			fwCache: newFakeFirewallCache([]godo.InboundRule{diffFakeInboundRule}),
+			fwCache: newFakeFirewallCacheWithDiffInboundRules(),
 			firewallRequest: &godo.FirewallRequest{
 				Name:          testWorkerFWName,
-				InboundRules:  []godo.InboundRule{fakeInboundRule},
+				InboundRules:  testInboundRules,
 				OutboundRules: testOutboundRules,
 				Tags:          testWorkerFWTags,
 			},
@@ -387,12 +490,12 @@ func TestFirewallController_Set(t *testing.T) {
 			fwCache: newFakeFirewallCacheEmpty(),
 			firewallRequest: &godo.FirewallRequest{
 				Name:          testWorkerFWName,
-				InboundRules:  []godo.InboundRule{fakeInboundRule},
+				InboundRules:  testInboundRules,
 				OutboundRules: testOutboundRules,
 				Tags:          testWorkerFWTags,
 			},
 			expectedGodoFirewallListResp: func(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error) {
-				return []godo.Firewall{*newFakeFirewall(testWorkerFWName, fakeInboundRule)}, newFakeOKResponse(), nil
+				return []godo.Firewall{*newFakeFirewall()}, newFakeOKResponse(), nil
 			},
 		},
 	}
@@ -431,20 +534,20 @@ func TestFirewallController_NoDataRace(t *testing.T) {
 				return nil, newFakeOKResponse(), nil
 			},
 			updateFunc: func(context.Context, string, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
-				return newFakeFirewall(testWorkerFWName, fakeInboundRule), newFakeOKResponse(), nil
+				return newFakeFirewall(), newFakeOKResponse(), nil
 			},
 			createFunc: func(context.Context, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
 				return nil, newFakeOKResponse(), nil
 			},
 			getFunc: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
-				return newFakeFirewall(testWorkerFWName, fakeInboundRule), newFakeOKResponse(), nil
+				return newFakeFirewall(), newFakeOKResponse(), nil
 			},
 			addRulesFunc: func(context.Context, string, *godo.FirewallRulesRequest) (*godo.Response, error) {
 				return newFakeOKResponse(), nil
 			},
 		},
 	)
-	fwManagerOp := newFakeFirewallManagerOp(gclient, newFakeFirewallCache([]godo.InboundRule{fakeInboundRule}))
+	fwManagerOp := newFakeFirewallManagerOp(gclient, newFakeFirewallCache())
 	fc := NewFirewallController(ctx, kclient, gclient, inf.Core().V1().Services(), fwManagerOp, testWorkerFWTags, testWorkerFWName)
 
 	wg.Add(1)
@@ -476,6 +579,7 @@ func TestFirewallController_actualRun(t *testing.T) {
 		expectedGodoFirewallListResp     func(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error)
 		expectedGodoFirewallUpdateResp   func(context.Context, string, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error)
 		expectedGodoFirewallAddRulesResp func(context.Context, string, *godo.FirewallRulesRequest) (*godo.Response, error)
+		expectedError                    error
 	}{
 		{
 			name:    "calls create when firewall does not exist",
@@ -492,21 +596,30 @@ func TestFirewallController_actualRun(t *testing.T) {
 		},
 		{
 			name:    "handles a modified firewall",
-			fwCache: newFakeFirewallCache([]godo.InboundRule{diffFakeInboundRule}),
+			fwCache: newFakeFirewallCacheWithDiffInboundRules(),
 			expectedGodoFirewallListResp: func(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error) {
-				return []godo.Firewall{*newFakeFirewall(testWorkerFWName, fakeInboundRule)}, newFakeOKResponse(), nil
+				return []godo.Firewall{*newFakeFirewall()}, newFakeOKResponse(), nil
 			},
 			expectedGodoFirewallUpdateResp: func(context.Context, string, *godo.FirewallRequest) (*godo.Firewall, *godo.Response, error) {
-				return newFakeFirewall(testWorkerFWName, fakeInboundRule), newFakeOKResponse(), nil
+				return newFakeFirewall(), newFakeOKResponse(), nil
 			},
+		},
+		{
+			name:    "fails to get firewall from firewall api",
+			fwCache: newFakeFirewallCacheEmpty(),
+			expectedGodoFirewallListResp: func(context.Context, *godo.ListOptions) ([]godo.Firewall, *godo.Response, error) {
+				return nil, newFakeNotOKResponse(), errors.New("")
+			},
+			expectedGodoFirewallGetResp: func(context.Context, string) (*godo.Firewall, *godo.Response, error) {
+				return nil, newFakeNotFoundResponse(), nil
+			},
+			expectedError: errors.New("failed to get worker firewall: failed to retrieve list of firewalls from DO API:"),
 		},
 	}
 
 	for _, test := range testcases {
 		t.Run(test.name, func(t *testing.T) {
 			// setup
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
 			gclient := newFakeGodoClient(
 				&fakeFirewallService{
 					listFunc:     test.expectedGodoFirewallListResp,
@@ -519,7 +632,157 @@ func TestFirewallController_actualRun(t *testing.T) {
 			fwManagerOp := newFakeFirewallManagerOp(gclient, newFakeFirewallCacheEmpty())
 			fc := NewFirewallController(ctx, kclient, gclient, inf.Core().V1().Services(), fwManagerOp, testWorkerFWTags, testWorkerFWName)
 
-			fc.actualRun(ctx.Done(), fwManagerOp, time.Duration(0))
+			err := fc.actualRun(ctx.Done(), fwManagerOp, time.Duration(0))
+			if (err != nil && test.expectedError == nil) || (err == nil && test.expectedError != nil) {
+				t.Errorf("error with firewall controller run\nwant: %#v\n got: %#v", test.expectedError, err)
+			}
+		})
+	}
+}
+
+func TestFirewallController_isEqualCheckForFirewallRequest(t *testing.T) {
+	testcases := []struct {
+		name            string
+		firewall        *godo.Firewall
+		firewallRequest *godo.FirewallRequest
+		unequalParts    []string
+		equal           bool
+	}{
+		{
+			name: "detects when firewall request fields and firewall fields are equal",
+			firewall: &godo.Firewall{
+				ID:            "123",
+				Name:          testWorkerFWName,
+				InboundRules:  testInboundRules,
+				OutboundRules: testOutboundRules,
+				Tags:          testWorkerFWTags,
+			},
+			firewallRequest: &godo.FirewallRequest{
+				Name:          testWorkerFWName,
+				InboundRules:  testInboundRules,
+				OutboundRules: testOutboundRules,
+				Tags:          testWorkerFWTags,
+			},
+			equal: true,
+		},
+		{
+			name: "detects when name is not equal",
+			firewall: &godo.Firewall{
+				ID:            "123",
+				Name:          "diff firewall name",
+				InboundRules:  testInboundRules,
+				OutboundRules: testOutboundRules,
+				Tags:          testWorkerFWTags,
+			},
+			firewallRequest: &godo.FirewallRequest{
+				Name:          testWorkerFWName,
+				InboundRules:  testInboundRules,
+				OutboundRules: testOutboundRules,
+				Tags:          testWorkerFWTags,
+			},
+			unequalParts: []string{"name"},
+			equal:        false,
+		},
+		{
+			name: "detects when inboundRules are not equal",
+			firewall: &godo.Firewall{
+				ID:            "123",
+				Name:          testWorkerFWName,
+				InboundRules:  testDiffInboundRules,
+				OutboundRules: testOutboundRules,
+				Tags:          testWorkerFWTags,
+			},
+			firewallRequest: &godo.FirewallRequest{
+				Name:          testWorkerFWName,
+				InboundRules:  testInboundRules,
+				OutboundRules: testOutboundRules,
+				Tags:          testWorkerFWTags,
+			},
+			unequalParts: []string{"inboundRules"},
+			equal:        false,
+		},
+		{
+			name: "detects when outboundRules are not equal",
+			firewall: &godo.Firewall{
+				ID:            "123",
+				Name:          testWorkerFWName,
+				InboundRules:  testInboundRules,
+				OutboundRules: testDiffOutboundRules,
+				Tags:          testWorkerFWTags,
+			},
+			firewallRequest: &godo.FirewallRequest{
+				Name:          testWorkerFWName,
+				InboundRules:  testInboundRules,
+				OutboundRules: testOutboundRules,
+				Tags:          testWorkerFWTags,
+			},
+			unequalParts: []string{"outboundRules"},
+			equal:        false,
+		},
+		{
+			name: "detects when tags are not equal",
+			firewall: &godo.Firewall{
+				ID:            "123",
+				Name:          testWorkerFWName,
+				InboundRules:  testInboundRules,
+				OutboundRules: testOutboundRules,
+				Tags:          []string{"rick", "and", "morty"},
+			},
+			firewallRequest: &godo.FirewallRequest{
+				Name:          testWorkerFWName,
+				InboundRules:  testInboundRules,
+				OutboundRules: testOutboundRules,
+				Tags:          testWorkerFWTags,
+			},
+			unequalParts: []string{"tags"},
+			equal:        false,
+		},
+		{
+			name: "detects when more then one property is not equal",
+			firewall: &godo.Firewall{
+				ID:            "123",
+				Name:          testWorkerFWName,
+				InboundRules:  testDiffInboundRules,
+				OutboundRules: testDiffOutboundRules,
+				Tags:          testWorkerFWTags,
+			},
+			firewallRequest: &godo.FirewallRequest{
+				Name:          testWorkerFWName,
+				InboundRules:  testInboundRules,
+				OutboundRules: testOutboundRules,
+				Tags:          testWorkerFWTags,
+			},
+			unequalParts: []string{"inboundRules", "outboundRules"},
+			equal:        false,
+		},
+		{
+			name: "detects when all properties are not equal",
+			firewall: &godo.Firewall{
+				Name:          "different name",
+				InboundRules:  testDiffInboundRules,
+				OutboundRules: testDiffOutboundRules,
+				Tags:          []string{"rick", "and", "morty"},
+			},
+			firewallRequest: &godo.FirewallRequest{
+				Name:          testWorkerFWName,
+				InboundRules:  testInboundRules,
+				OutboundRules: testOutboundRules,
+				Tags:          testWorkerFWTags,
+			},
+			unequalParts: []string{"name", "inboundRules", "outboundRules", "tags"},
+			equal:        false,
+		},
+	}
+
+	for _, test := range testcases {
+		t.Run(test.name, func(t *testing.T) {
+			equal, unequalParts := isEqual(test.firewall, test.firewallRequest)
+			if diff := cmp.Diff(test.equal, equal); diff != "" {
+				t.Errorf("Get() mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.unequalParts, unequalParts); diff != "" {
+				t.Errorf("Get() mismatch (-want +got):\n%s", diff)
+			}
 		})
 	}
 }

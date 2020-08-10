@@ -127,7 +127,7 @@ func NewFirewallController(
 				defer cancel()
 				err := fc.ensureReconciledFirewall(ctx)
 				if err != nil {
-					klog.Errorf("failed to reconcile worker firewall: %s", err)
+					klog.Errorf("failed to reconcile worker firewall after adding a resource object: %s", err)
 				}
 			},
 			UpdateFunc: func(old, cur interface{}) {
@@ -135,7 +135,7 @@ func NewFirewallController(
 				defer cancel()
 				err := fc.ensureReconciledFirewall(ctx)
 				if err != nil {
-					klog.Errorf("failed to reconcile worker firewall: %s", err)
+					klog.Errorf("failed to reconcile worker firewall after updating a resource object: %s", err)
 				}
 			},
 			DeleteFunc: func(obj interface{}) {
@@ -143,7 +143,7 @@ func NewFirewallController(
 				defer cancel()
 				err := fc.ensureReconciledFirewall(ctx)
 				if err != nil {
-					klog.Errorf("failed to reconcile worker firewall: %s", err)
+					klog.Errorf("failed to reconcile worker firewall after deleting a resource object: %s", err)
 				}
 			},
 		},
@@ -157,31 +157,34 @@ func NewFirewallController(
 // Run starts the firewall controller loop.
 func (fc *FirewallController) Run(stopCh <-chan struct{}, fm *firewallManagerOp, fwReconcileFrequency time.Duration) {
 	wait.Until(func() {
-		fc.actualRun(stopCh, fm, fwReconcileFrequency)
+		err := fc.actualRun(stopCh, fm, fwReconcileFrequency)
+		if err != nil {
+			klog.Errorf("failed to run firewall controller loop: %v", err)
+		}
 	}, fwReconcileFrequency, stopCh)
 }
 
-func (fc *FirewallController) actualRun(stopCh <-chan struct{}, fm *firewallManagerOp, fwReconcileFrequency time.Duration) {
+func (fc *FirewallController) actualRun(stopCh <-chan struct{}, fm *firewallManagerOp, fwReconcileFrequency time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), fwReconcileFrequency)
 	defer cancel()
 
 	currentFirewall, err := fc.fwManager.Get(ctx)
 	if err != nil {
-		klog.Errorf("failed to get worker firewall: %s", err)
+		return fmt.Errorf("failed to get worker firewall: %s", err)
 	}
-
 	if currentFirewall != nil {
 		if fm.fwCache.isEqual(currentFirewall) {
-			return
+			return nil
 		}
 	}
 	fm.fwCache.updateCache(currentFirewall)
 	err = fc.ensureReconciledFirewall(ctx)
 	if err != nil {
-		klog.Errorf("failed to reconcile worker firewall: %s", err)
-	} else {
-		klog.Info("successfully reconciled firewall")
+		return fmt.Errorf("failed to reconcile worker firewall: %s", err)
 	}
+
+	klog.Info("successfully reconciled firewall")
+	return nil
 }
 
 // Get returns the current public access firewall representation.
@@ -218,24 +221,22 @@ func (fm *firewallManagerOp) Get(ctx context.Context) (*godo.Firewall, error) {
 func (fm *firewallManagerOp) Set(ctx context.Context, fr *godo.FirewallRequest) error {
 	targetFirewall := fm.fwCache.getCachedFirewall()
 
-	// A locally cached firewall exists, but the inbound rules don't match the expected
-	// service inbound rules. So we need to use the locally cached firewall ID to attempt
-	// to update the firewall APIs representation of the firewall with the new rules.
-	//
-	// Then we update the local cache with the firewall returned from the Update request.
 	if targetFirewall != nil {
-		if isEqual(targetFirewall, fr) {
+		equal, _ := isEqual(targetFirewall, fr)
+		if equal {
 			// A locally cached firewall with matching rules, correct name and tags means there is nothing to update.
 			return nil
 		}
+		// A locally cached firewall exists, but the inbound rules don't match the expected
+		// service inbound rules, outbound rules, name or tags. So we need to use the locally
+		// cached firewall ID to attempt to update the firewall APIs representation of the
+		// firewall with the new rules.
 		currentFirewall, resp, err := fm.client.Firewalls.Update(ctx, targetFirewall.ID, fr)
 		if err != nil {
 			if resp == nil || resp.StatusCode != http.StatusNotFound {
 				return fmt.Errorf("could not update firewall: %v", err)
 			}
-			// Firewall does not exist, so we need to create a new firewall with the
-			// updated inbound rules.
-			currentFirewall, err = fm.createFirewall(ctx, fr.InboundRules)
+			currentFirewall, err = fm.createFirewall(ctx, fr)
 			if err != nil {
 				return fmt.Errorf("could not create firewall: %v", err)
 			}
@@ -254,7 +255,7 @@ func (fm *firewallManagerOp) Set(ctx context.Context, fr *godo.FirewallRequest) 
 		}
 		if currentFirewall == nil {
 			klog.Info("an existing firewall not found, we need to create one")
-			currentFirewall, err = fm.createFirewall(ctx, fr.InboundRules)
+			currentFirewall, err = fm.createFirewall(ctx, fr)
 			if err != nil {
 				return err
 			}
@@ -265,26 +266,24 @@ func (fm *firewallManagerOp) Set(ctx context.Context, fr *godo.FirewallRequest) 
 	return nil
 }
 
-func isEqual(targetFirewall *godo.Firewall, fr *godo.FirewallRequest) bool {
-	equal := true
-	if !cmp.Equal(targetFirewall.Name, fr.Name) {
-		klog.Info("reconciling firewall name")
-		equal = false
-	} else if !cmp.Equal(targetFirewall.InboundRules, fr.InboundRules) {
-		klog.Info("reconciling inbound rules")
-		equal = false
-	} else if !cmp.Equal(targetFirewall.OutboundRules, fr.OutboundRules) {
-		klog.Info("reconciling outbound rules")
-		equal = false
-	} else if !cmp.Equal(targetFirewall.Tags, fr.Tags) {
-		klog.Info("reconciling firewall tags")
-		equal = false
+func isEqual(targetFirewall *godo.Firewall, fr *godo.FirewallRequest) (bool, []string) {
+	var unequalParts []string
+	if targetFirewall.Name != fr.Name {
+		unequalParts = append(unequalParts, "name")
 	}
-	return equal
+	if !cmp.Equal(targetFirewall.InboundRules, fr.InboundRules) {
+		unequalParts = append(unequalParts, "inboundRules")
+	}
+	if !cmp.Equal(targetFirewall.OutboundRules, fr.OutboundRules) {
+		unequalParts = append(unequalParts, "outboundRules")
+	}
+	if !cmp.Equal(targetFirewall.Tags, fr.Tags) {
+		unequalParts = append(unequalParts, "tags")
+	}
+	return len(unequalParts) == 0, unequalParts
 }
 
-func (fm *firewallManagerOp) createFirewall(ctx context.Context, svcInboundRules []godo.InboundRule) (*godo.Firewall, error) {
-	fr := createFirewallRequest(svcInboundRules, fm.workerFirewallName, fm.workerFirewallTags)
+func (fm *firewallManagerOp) createFirewall(ctx context.Context, fr *godo.FirewallRequest) (*godo.Firewall, error) {
 	currentFirewall, _, err := fm.client.Firewalls.Create(ctx, fr)
 	return currentFirewall, err
 }
@@ -340,7 +339,7 @@ func (fc *FirewallController) ensureReconciledFirewall(ctx context.Context) erro
 	fr := fc.createReconciledFirewallRequest(serviceList)
 	err = fc.fwManager.Set(ctx, fr)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create reconciled firewall: %v", err)
 	}
 	return nil
 }
